@@ -306,7 +306,7 @@ namespace SnowbowHandlebars {
 		static async Task BuildAsync() {
 			ThemeConfig themeConfig = GetThemeConfig();
 			MemoryFileSystem mfs = await GenerateAllAsync(themeConfig);
-			DirectoryInfo publishDir = new DirectoryInfo("publish");
+			DirectoryInfo publishDir = new DirectoryInfo("public");
 			if (publishDir.Exists) {
 				foreach (FileInfo file in publishDir.EnumerateFiles()) {
 					file.Delete();
