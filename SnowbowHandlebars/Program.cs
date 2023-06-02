@@ -339,12 +339,7 @@ namespace SnowbowHandlebars {
 						resp.Close("404 not found".ToUtf8Bytes(), true);
 						continue;
 					}
-					if (path.EndsWith(".css")) {
-						resp.ContentType = "text/css";
-					}
-					else if (path.EndsWith(".js")) {
-						resp.ContentType = "text/javascript";
-					}
+					resp.ContentType = MimeMapping.MimeUtility.GetMimeMapping(path.EndsWith('/') ? path + "index.html" : path);
 					resp.Close(respContent, false);
 				}
 			});

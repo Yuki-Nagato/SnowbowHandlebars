@@ -22,6 +22,7 @@
     <PackageReference Include="Handlebars.Net.Helpers" Version="2.3.16" />
     <PackageReference Include="HtmlAgilityPack" Version="1.11.46" />
     <PackageReference Include="log4net" Version="2.0.15" />
+    <PackageReference Include="MimeMapping" Version="2.0.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="YamlDotNet" Version="13.1.0" />
   </ItemGroup>
