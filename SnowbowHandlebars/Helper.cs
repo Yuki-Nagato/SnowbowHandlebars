@@ -1,51 +1,41 @@
 ﻿using Newtonsoft.Json;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace SnowbowHandlebars {
 	public static class Helper {
-		public static readonly UTF8Encoding UTF8Enc = new UTF8Encoding(false, true);
-		public static string ReadAllText(DirectoryInfo? dir, string relativeFilePath) {
-			if (dir == null) {
-				return File.ReadAllText(relativeFilePath, UTF8Enc);
-			}
-			return File.ReadAllText(Path.Combine(dir.FullName, relativeFilePath), UTF8Enc);
-		}
+		public static readonly UTF8Encoding UTF8Enc = new(false, true);
 
 		public static string ReadAllText(this FileInfo file) {
-			return File.ReadAllText(file.FullName, UTF8Enc);
+			return File.ReadAllText(file.ToString(), UTF8Enc);
 		}
 
 		public static byte[] ReadAllBytes(this FileInfo file) {
-			return File.ReadAllBytes(file.FullName);
+			return File.ReadAllBytes(file.ToString());
 		}
 
 		public static void WriteAllBytes(this FileInfo file, byte[] bytes) {
-			File.WriteAllBytes(file.FullName, bytes);
+			File.WriteAllBytes(file.ToString(), bytes);
 		}
 
 		public static FileInfo GetFile(this DirectoryInfo directory, string filename) {
-			var result = new FileInfo(Path.Combine(directory.FullName, filename));
+			var result = new FileInfo(Path.Combine(directory.ToString(), filename));
 			if (!result.Exists) {
-				throw new FileNotFoundException(result.FullName);
+				throw new FileNotFoundException(result.ToString());
 			}
 			return result;
 		}
 
 		public static DirectoryInfo GetDir(this DirectoryInfo directory, string dirname) {
-			var result = new DirectoryInfo(Path.Combine(directory.FullName, dirname));
+			var result = new DirectoryInfo(Path.Combine(directory.ToString(), dirname));
 			if (!result.Exists) {
-				throw new DirectoryNotFoundException(result.FullName);
+				throw new DirectoryNotFoundException(result.ToString());
 			}
 			return result;
 		}
 
 		public static string RelativeTo(this FileInfo fileInfo, DirectoryInfo? directoryInfo = null) {
-			return Path.GetRelativePath((directoryInfo ?? Argument.Directory!).FullName, fileInfo.FullName).Replace('\\', '/');
+			return Path.GetRelativePath((directoryInfo ?? Argument.Directory).FullName, fileInfo.FullName).Replace('\\', '/');
 		}
 
 		public static T DeserializeJson<T>(this string json) {

@@ -40,7 +40,7 @@ namespace SnowbowHandlebars {
 		}
 
 		public void WriteToDisk(DirectoryInfo root, int ignorePrefix) {
-			string rootPath = root.FullName.Replace('\\', '/').TrimEnd('/');
+			string rootPath = root.ToString().Replace('\\', '/').TrimEnd('/');
 			foreach (var kvp in this) {
 				string path = "";
 				var splittedPaths = kvp.Key.Split('/').Skip(ignorePrefix + 1);

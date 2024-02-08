@@ -1,12 +1,12 @@
 {
   "profiles": {
+    "WSL": {
+      "commandName": "WSL2",
+      "distributionName": ""
+    },
     "SnowbowHandlebars": {
       "commandName": "Project",
-      "commandLineArgs": "server -d C:\\Users\\Yuki\\source\\repos\\blog.yuki-nagato.com_handlebars -t lightsnow"
-    },
-    "labpath": {
-      "commandName": "Project",
-      "commandLineArgs": "server -d D:\\source\\repos\\blog.yuki-nagato.com_handlebars -t lightsnow"
+      "commandLineArgs": "version"
     }
   }
 }

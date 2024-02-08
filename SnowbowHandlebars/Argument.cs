@@ -1,10 +1,7 @@
 ﻿using CommandLine;
-using Newtonsoft.Json;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using CommandLine.Text;
+using log4net;
+using System.Reflection;
 
 namespace SnowbowHandlebars {
 	[Verb("build")]
@@ -22,38 +19,55 @@ namespace SnowbowHandlebars {
 		[Option(shortName: 't', longName: "theme", Required = true)]
 		public string? Theme { get; init; }
 	}
+	[Verb("version")]
+	public class VersionOptions {
+	}
 
 	public static class Argument {
-		public static string? Verb { get; private set; }
-		public static DirectoryInfo? Directory { get; private set; }
-		public static string? Theme { get; private set; }
+		private static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod().NN().DeclaringType);
+		private static string? verb;
+		public static string? Verb {
+			get {
+				return verb.NN();
+			}
+		}
+		private static DirectoryInfo? directory;
+		public static DirectoryInfo Directory {
+			get {
+				return directory.NN();
+			}
+		}
+		private static string? theme;
+		public static string Theme {
+			get {
+				return theme.NN();
+			}
+		}
 		public static DateTimeOffset BuildTime { get; set; }
 		public static void MakeEffect(string[] args) {
-			_ = Parser.Default.ParseArguments<BuildOptions, ServerOptions>(args)
+			new Parser(config => config.AutoVersion = false).ParseArguments<BuildOptions, ServerOptions, VersionOptions>(args)
 				.WithParsed<BuildOptions>(buildOptions => {
-					if (buildOptions.Directory != null) {
-						Environment.CurrentDirectory = buildOptions.Directory.FullName;
+					if (buildOptions.Directory == null) {
+						log.Warn("Directory not specified, use current directory " + Environment.CurrentDirectory);
 					}
-					else {
-						Logger.Log.Warn("Directory not specified, use current directory " + Environment.CurrentDirectory);
-					}
-					Verb = "build";
-					Directory = new DirectoryInfo(Environment.CurrentDirectory);
-					Theme = buildOptions.Theme;
+					verb = "build";
+					directory = buildOptions.Directory ?? new DirectoryInfo(Environment.CurrentDirectory);
+					theme = buildOptions.Theme;
 				})
 				.WithParsed<ServerOptions>(serverOption => {
-					if (serverOption.Directory != null) {
-						Environment.CurrentDirectory = serverOption.Directory.FullName;
+					if (serverOption.Directory == null) {
+						log.Warn("Directory not specified, use current directory " + Environment.CurrentDirectory);
 					}
-					else {
-						Logger.Log.Warn("Directory not specified, use current directory " + Environment.CurrentDirectory);
-					}
-					Verb = "server";
-					Directory = new DirectoryInfo(Environment.CurrentDirectory);
-					Theme = serverOption.Theme;
+					verb = "server";
+					directory = serverOption.Directory ?? new DirectoryInfo(Environment.CurrentDirectory);
+					theme = serverOption.Theme;
+				})
+				.WithParsed<VersionOptions>(versionOptions => {
+					log.Info("SnowbowHandlebars v1");
+					verb = "version";
 				})
 				.WithNotParsed(errors => {
-					Logger.Log.Error(errors);
+					log.Error(errors);
 				});
 			BuildTime = DateTimeOffset.Now;
 		}

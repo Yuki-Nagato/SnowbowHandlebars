@@ -1,22 +1,27 @@
 ﻿using HandlebarsDotNet;
 using HandlebarsDotNet.Helpers;
-using Newtonsoft.Json;
+using HandlebarsDotNet.PathStructure;
+using log4net;
+using log4net.DateFormatter;
+using SnowbowHandlebars.Contexts;
 using System.Collections;
+using System.IO;
 using System.Net;
+using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Linq;
-using System.Text.Unicode;
-using System.Threading;
-using YamlDotNet.Serialization.NodeTypeResolvers;
+using System.ServiceModel.Syndication;
 using static SnowbowHandlebars.MarkdownParser;
-using System.Runtime.Intrinsics.Arm;
+using System.Xml;
+using Vlingo.Xoom.UUID;
+[assembly: log4net.Config.XmlConfigurator(ConfigFile = "log4net.config", Watch = true)]
 
 namespace SnowbowHandlebars {
 	internal class Program {
+		private static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod().NN().DeclaringType);
 
 		static async Task Main(string[] args) {
-			Logger.Log.Debug("Snowbow started.");
+			log.Debug("Snowbow started.");
 			Argument.MakeEffect(args);
 			if (Argument.Verb == "build") {
 				await BuildAsync();
@@ -28,73 +33,28 @@ namespace SnowbowHandlebars {
 
 		static HandlebarsTemplate<object, object> MakeHandlebars() {
 			var handlebars = Handlebars.Create(new HandlebarsConfiguration() { ThrowOnUnresolvedBindingExpression = true, TextEncoder = new UnicodeFreeTextEncoder() });
-			DirectoryInfo themeDir = Argument.Directory.NN().GetDir($"themes/{Argument.Theme}");
+			DirectoryInfo themeDir = Argument.Directory.GetDir($"themes/{Argument.Theme}");
 			foreach (FileInfo fileInfo in themeDir.GetFiles("*.hbs", SearchOption.AllDirectories)) {
 				string key = fileInfo.RelativeTo(themeDir);
-				Logger.Log.DebugFormat("Register template {0}", key);
+				log.DebugFormat("Register template {0}", key);
 				handlebars.RegisterTemplate(key, fileInfo.ReadAllText());
 			}
-			handlebars.RegisterHelper("T", (context, arguments) => {
+
+			HandlebarsHelpers.Register(handlebars);
+			handlebars.RegisterHelper("T", (in HelperOptions options, in Context context, in Arguments arguments) => ((ContextAggregation)options.Data["Root"]).Translate((string)arguments.First()));
+			handlebars.RegisterHelper("AP", (in HelperOptions options, in Context context, in Arguments arguments) => ((ContextAggregation)options.Data["Root"]).AbsolutePath((string)arguments.First()));
+			handlebars.RegisterHelper("ALP", (in HelperOptions options, in Context context, in Arguments arguments) => ((ContextAggregation)options.Data["Root"]).AbsoluteLanguagedPath((string)arguments.First()));
+			handlebars.RegisterHelper("TP", (in HelperOptions options, in Context context, in Arguments arguments) => ((ContextAggregation)options.Data["Root"]).TranslatePath((string)arguments.First()));
+			handlebars.RegisterHelper("FrontMatterOrDefault", (in HelperOptions options, in Context context, in Arguments arguments) => {
 				var argArr = arguments.ToArray();
-				SiteContext siteContext;
-				if (argArr.Length == 1) {
-					siteContext = (SiteContext)context.Value;
+				if (argArr.Length != 2) {
+					throw new ArgumentException("FrontMatterOrDefault should have 2 arguments.");
 				}
-				else if (argArr.Length == 2) {
-					siteContext = (SiteContext)argArr[1];
-				}
-				else {
-					throw new ArgumentException("T should have 1 or 2 arguments.");
-				}
-				return siteContext.T((string)arguments[0]);
-			});
-			handlebars.RegisterHelper("AP", (context, arguments) => {
-				var argArr = arguments.ToArray();
-				SiteContext siteContext;
-				if (argArr.Length == 1) {
-					siteContext = (SiteContext)context.Value;
-				}
-				else if (argArr.Length == 2) {
-					siteContext = (SiteContext)argArr[1];
-				}
-				else {
-					throw new ArgumentException("AP should have 1 or 2 arguments.");
-				}
-				return siteContext.AP((string)arguments[0]);
-			});
-			handlebars.RegisterHelper("ALP", (in HelperOptions options, in Context context, in Arguments arguments) => {
-				var argArr = arguments.ToArray();
-				SiteContext siteContext;
-				if (argArr.Length == 1) {
-					siteContext = (SiteContext)context.Value;
-				}
-				else if (argArr.Length == 2) {
-					siteContext = (SiteContext)argArr[1];
-				}
-				else {
-					throw new ArgumentException("ALP should have 1 or 2 arguments.");
-				}
-				return siteContext.ALP((string)arguments[0]);
-			});
-			handlebars.RegisterHelper("TP", (context, arguments) => {
-				var argArr = arguments.ToArray();
-				SiteContext siteContext;
-				if (argArr.Length == 1) {
-					siteContext = (SiteContext)context.Value;
-				}
-				else if (argArr.Length == 2) {
-					siteContext = (SiteContext)argArr[1];
-				}
-				else {
-					throw new ArgumentException("TP should have 1 or 2 arguments.");
-				}
-				return siteContext.TP((string)arguments[0]);
-			});
-			handlebars.RegisterHelper("FrontMatterOrDefault", (context, arguments) => {
-				return ((SiteContext)context.Value).FrontMatterOrDefault((string)arguments[0], arguments[1]);
+				ContextAggregation ctx = (ContextAggregation)options.Data["Root"];
+				return ctx.Page.FrontMatterOrDefault((string)argArr[0], argArr[1]);
 			});
 			handlebars.RegisterHelper("ToString", (context, arguments) => {
-				StringBuilder sb = new StringBuilder();
+				StringBuilder sb = new();
 				foreach (var arg in arguments) {
 					sb.Append(arg);
 				}
@@ -119,84 +79,87 @@ namespace SnowbowHandlebars {
 			handlebars.RegisterHelper("Ternary", (context, arguments) => {
 				return (bool)arguments[0] ? arguments[1] : arguments[2];
 			});
-			//HandlebarsHelpers.Register(handlebars, options => { options.UseCategoryPrefix = false; });
-			HandlebarsHelpers.Register(handlebars);
-			var template = handlebars.Compile(Argument.Directory.NN().GetFile($"themes/{Argument.Theme}/index.hbs").ReadAllText());
+
+			var template = handlebars.Compile(Argument.Directory.GetFile($"themes/{Argument.Theme}/index.hbs").ReadAllText());
 			return template;
 		}
 
 		static ThemeConfig GetThemeConfig() {
-			ThemeConfig themeConfig = Argument.Directory.NN().GetFile($"themes/{Argument.Theme}/theme-config.json").ReadAllText().DeserializeJson<ThemeConfig>();
-			Logger.Log.DebugFormat("themeConfig: {0}", themeConfig);
+			ThemeConfig themeConfig = Argument.Directory.GetFile($"themes/{Argument.Theme}/theme-config.json").ReadAllText().DeserializeJson<ThemeConfig>();
+			log.DebugFormat("themeConfig: {0}", themeConfig);
 			return themeConfig;
 		}
 
 
 		static async Task<MemoryFileSystem> GenerateAllAsync(ThemeConfig themeConfig) {
-			Logger.Log.Info("Generating all...");
+			log.Info("Generating all...");
 			Argument.BuildTime = DateTimeOffset.Now;
 			MemoryFileSystem mfs = new MemoryFileSystem();
 			var template = MakeHandlebars();
 
-			Dictionary<string, List<SiteContext>> articleContext = await BuildArticleContextAsync(themeConfig);
-			foreach (var (language, contexts) in articleContext) {
-				foreach (SiteContext ctx in contexts) {
-					string rendered = template(ctx);
+			ArticleContext articleContext = await BuildArticleContextAsync(themeConfig);
+			foreach (var (language, contexts) in articleContext.LanguageArticlesDictionary) {
+				foreach (PageContext ctx in contexts) {
+					string rendered = template(new ContextAggregation(themeConfig, articleContext, ctx));
 					mfs.Add(ctx.Path, rendered);
 				}
 			}
 
-			List<SiteContext> pageContexts = await BuildPageContextAsync(articleContext, themeConfig);
-			foreach (SiteContext ctx in pageContexts) {
-				string rendered = template(ctx);
+			List<PageContext> pageContexts = await BuildPageContextAsync(articleContext, themeConfig);
+			foreach (PageContext ctx in pageContexts) {
+				string rendered = template(new ContextAggregation(themeConfig, articleContext, ctx));
 				mfs.Add(ctx.Path, rendered);
 			}
 
 			foreach (string language in themeConfig.Languages) {
-				SiteContext ctx = new SiteContext("index", "index", language, "", "", null, articleContext, articleContext.First().Value.First().LanguageTagToArticles, articleContext.First().Value.First().LanguageCategoryToArticles, null, themeConfig);
-				string rendered = template(ctx);
+				PageContext ctx = new PageContext("index", "index", language, "", "", language, null, themeConfig);
+				string rendered = template(new ContextAggregation(themeConfig, articleContext, ctx));
 				mfs.Add(ctx.Path, rendered);
 			}
 
 			mfs.Merge(CopyAssets(themeConfig));
-			Logger.Log.Info("Generation finished.");
+			mfs.Merge(BuildAtomSyndication(themeConfig, articleContext));
+			log.Info("Generation finished.");
 			return mfs;
 		}
 
-		static async Task<Dictionary<string, List<SiteContext>>> BuildArticleContextAsync(ThemeConfig themeConfig) {
-			// Shared Article Lists
-			Dictionary<string, List<SiteContext>> languageToArticles = new();
-			Dictionary<string, SortedDictionary<string, List<SiteContext>>> languageTagToArticles = new();
-			Dictionary<string, SortedDictionary<string, List<SiteContext>>> languageCategoryToArticles = new();
+		static async Task<ArticleContext> BuildArticleContextAsync(ThemeConfig themeConfig) {
+			ArticleContext result = new(new Dictionary<string, List<PageContext>>(), new Dictionary<string, SortedDictionary<string, List<PageContext>>>(), new Dictionary<string, SortedDictionary<string, List<PageContext>>>());
 
-			List<Dictionary<string, SiteContext>> dp = new();
+			List<Dictionary<string, PageContext>> languageArticleDictionaries = new();
 
-			var articleDirs = Argument.Directory.NN().GetDirectories("articles/????????-*");
+			var articleDirs = Argument.Directory.GetDirectories("articles/????????-*");
 			foreach (DirectoryInfo articleDir in articleDirs) {
 				Match m = Regex.Match(articleDir.Name, @"^(\d{8})-(.+)$");
-				if (!m.Success) continue;
-
+				if (!m.Success) {
+					continue;
+				}
 				string commonName = m.Groups[2].Value;
-				dp.Add(new Dictionary<string, SiteContext>());
-
+				Dictionary<string, PageContext> languageArticleDictionary = new();
 				FileInfo[] articleMarkdownFiles = articleDir.GetFiles("*.*.md");
 				foreach (FileInfo articleMarkdownFile in articleMarkdownFiles) {
-					string[] temp = articleMarkdownFile.Name.Split('.');
-					string language = temp[^2];
+					string language = articleMarkdownFile.Name.Split('.')[^2];
+					if (!themeConfig.Languages.Contains(language)) {
+						continue;
+					}
 					var (frontMatter, content) = await ParseMarkdownAsync(articleMarkdownFile.ReadAllText());
 					content = RedirectArticleAssetPath(themeConfig, commonName, content);
-					SiteContext ctx = new SiteContext("article", commonName, language, content, "articles/" + commonName + "/", frontMatter, languageToArticles, languageTagToArticles, languageCategoryToArticles, new ArticleAttribute(language, frontMatter.NN()), themeConfig);
-					dp[^1].Add(language, ctx);
+					PageContext ctx = new("article", commonName, language, "articles/" + commonName + "/", content, language, frontMatter, themeConfig);
+					languageArticleDictionary.Add(language, ctx);
+				}
+				if (languageArticleDictionary.Any()) {
+					languageArticleDictionaries.Add(languageArticleDictionary);
 				}
 			}
 
-			foreach (var lap in dp) {
+			// Fill ArticleContexts without i18n source.
+			foreach (var languageArticleDictionary in languageArticleDictionaries) {
 				foreach (string lang in themeConfig.Languages) {
-					if (!lap.ContainsKey(lang)) {
+					if (!languageArticleDictionary.ContainsKey(lang)) {
 						foreach (string l in themeConfig.Languages) {
-							if (lap.ContainsKey(l)) {
-								SiteContext newCtx = new SiteContext(lap[l].Layout, lap[l].CommonName, lang, lap[l].Content, lap[l].RelativePath, lap[l].FrontMatter, languageToArticles, languageTagToArticles, languageCategoryToArticles, lap[l].Article, themeConfig);
-								lap.Add(lang, newCtx);
+							if (languageArticleDictionary.ContainsKey(l)) {
+								PageContext newCtx = languageArticleDictionary[l] with { Language = lang };
+								languageArticleDictionary.Add(lang, newCtx);
 								break;
 							}
 						}
@@ -205,49 +168,57 @@ namespace SnowbowHandlebars {
 			}
 
 			foreach (string language in themeConfig.Languages) {
-				languageToArticles.Add(language, new());
-				foreach (var lap in dp) {
-					languageToArticles[language].Add(lap[language]);
+				List<PageContext> articles = new();
+				result.LanguageArticlesDictionary.Add(language, articles);
+				foreach (var languageArticleDictionary in languageArticleDictionaries) {
+					articles.Add(languageArticleDictionary[language]);
 				}
-				languageToArticles[language].Sort((a, b) => {
-					if (a.Time != b.Time) {
-						return b.Time.CompareTo(a.Time);
+				articles.Sort((a, b) => {
+					if (a.Time.HasValue && !b.Time.HasValue) {
+						return -1;
 					}
-					return b.CommonName.CompareTo(a.CommonName);
+					if (!a.Time.HasValue && b.Time.HasValue) {
+						return 1;
+					}
+					if (a.Time.HasValue && b.Time.HasValue && a.Time != b.Time) {
+						return b.Time.Value.CompareTo(a.Time.Value);
+					}
+					return a.CommonName.CompareTo(b.CommonName);
 				});
-				for (int i = 0; i < languageToArticles[language].Count; i++) {
-					languageToArticles[language][i].Article.NN().Index = i;
+				for (int i = 0; i < articles.Count; i++) {
+					articles[i].IndexOfArticleInLanguage = i;
 				}
 			}
 
-			foreach (var (language, contexts) in languageToArticles) {
-				languageTagToArticles.Add(language, new());
-				languageCategoryToArticles.Add(language, new());
-				foreach (SiteContext ctx in contexts) {
-					foreach (string tag in ctx.Article.NN().Tags) {
-						if (!languageTagToArticles[language].ContainsKey(tag)) {
-							languageTagToArticles[language].Add(tag, new());
+			foreach (var (language, articles) in result.LanguageArticlesDictionary) {
+				result.LanguageTagArticlesDictionary.Add(language, new());
+				result.LanguageCategoryArticlesDictionary.Add(language, new());
+				foreach (PageContext article in articles) {
+					foreach (string tag in article.Tags) {
+						if (!result.LanguageTagArticlesDictionary[language].ContainsKey(tag)) {
+							result.LanguageTagArticlesDictionary[language].Add(tag, new());
 						}
-						languageTagToArticles[language][tag].Add(ctx);
+						result.LanguageTagArticlesDictionary[language][tag].Add(article);
 					}
-					foreach (string category in ctx.Article.NN().Categories) {
-						if (!languageCategoryToArticles[language].ContainsKey(category)) {
-							languageCategoryToArticles[language].Add(category, new());
+					foreach (string category in article.Categories) {
+						if (!result.LanguageCategoryArticlesDictionary[language].ContainsKey(category)) {
+							result.LanguageCategoryArticlesDictionary[language].Add(category, new());
 						}
-						languageCategoryToArticles[language][category].Add(ctx);
+						result.LanguageCategoryArticlesDictionary[language][category].Add(article);
 					}
 				}
 			}
 
-			return languageToArticles;
+			return result;
 		}
 
-		static async Task<List<SiteContext>> BuildPageContextAsync(Dictionary<string, List<SiteContext>> languageToArticles, ThemeConfig themeConfig) {
-			List<SiteContext> pageContexts = new List<SiteContext>();
-			DirectoryInfo pagesDir = Argument.Directory.NN().GetDir("pages");
+		static async Task<List<PageContext>> BuildPageContextAsync(ArticleContext articleContext, ThemeConfig themeConfig) {
+			List<PageContext> result = new();
+			DirectoryInfo pagesDir = Argument.Directory.GetDir("pages");
 			foreach (FileInfo fileInfo in pagesDir.GetFiles("*.md", SearchOption.AllDirectories)) {
 				var (frontMatter, content) = await ParseMarkdownAsync(fileInfo.ReadAllText());
 				string path = fileInfo.RelativeTo(pagesDir);
+				string commonName = Path.GetFileNameWithoutExtension(fileInfo.FullName);
 				string? language = null;
 				foreach (string lang in themeConfig.Languages) {
 					if (path.StartsWith(lang + "/")) {
@@ -262,21 +233,21 @@ namespace SnowbowHandlebars {
 				else {
 					path = path.RemoveEnd(".md") + ".html";
 				}
-				SiteContext ctx = new SiteContext("page", string.Join('_', path.Split(Path.GetInvalidFileNameChars())), language, content, path, frontMatter, languageToArticles, languageToArticles.First().Value.First().LanguageTagToArticles, languageToArticles.First().Value.First().LanguageCategoryToArticles, null, themeConfig);
-				pageContexts.Add(ctx);
+				PageContext ctx = new("page", commonName, language, path, content, language, frontMatter, themeConfig);
+				result.Add(ctx);
 			}
-			return pageContexts;
+			return result;
 		}
 
 		static MemoryFileSystem CopyAssets(ThemeConfig themeConfig) {
 			MemoryFileSystem mfs = new MemoryFileSystem();
 
-			DirectoryInfo themeAssets = Argument.Directory.NN().GetDir("themes").GetDir(Argument.Theme.NN()).GetDir("assets");
+			DirectoryInfo themeAssets = Argument.Directory.GetDir("themes").GetDir(Argument.Theme).GetDir("assets");
 			foreach (FileInfo fileInfo in themeAssets.GetFiles("*", SearchOption.AllDirectories)) {
-				mfs.Add("/" + fileInfo.RelativeTo(themeAssets), fileInfo.ReadAllBytes());
+				mfs.Add(themeConfig.BasePath + fileInfo.RelativeTo(themeAssets), fileInfo.ReadAllBytes());
 			}
 
-			var articleDirs = Argument.Directory.NN().GetDirectories("articles/????????-*");
+			var articleDirs = Argument.Directory.GetDirectories("articles/????????-*");
 			foreach (DirectoryInfo articleDir in articleDirs) {
 				Match m = Regex.Match(articleDir.Name, @"^(\d{8})-(.+)$");
 				if (!m.Success) continue;
@@ -285,7 +256,7 @@ namespace SnowbowHandlebars {
 				DirectoryInfo[] articleAssets = articleDir.GetDirectories("assets");
 				if (articleAssets.Length == 1) {
 					foreach (FileInfo fileInfo in articleAssets[0].GetFiles("*", SearchOption.AllDirectories)) {
-						mfs.Add("/article-assets/" + commonName + "/" + fileInfo.RelativeTo(articleAssets[0]), fileInfo.ReadAllBytes());
+						mfs.Add(themeConfig.BasePath + "article-assets/" + commonName + "/" + fileInfo.RelativeTo(articleAssets[0]), fileInfo.ReadAllBytes());
 					}
 				}
 			}
@@ -299,14 +270,53 @@ namespace SnowbowHandlebars {
 	<body>
 	</body>
 </html>";
-			mfs.Add("/", meta);
+			mfs.Add(themeConfig.BasePath, meta);
 			return mfs;
+		}
+
+		public static MemoryFileSystem BuildAtomSyndication(ThemeConfig themeConfig, ArticleContext articleContext) {
+			MemoryFileSystem result = new();
+			using NameBasedGenerator uuidGenerator = new(HashType.Sha1);
+			foreach (var (language, articles) in articleContext.LanguageArticlesDictionary) {
+				SyndicationFeed feed = new(
+					themeConfig.Translation[language].GetValueOrDefault(themeConfig.CommonTitle, themeConfig.CommonTitle),
+					themeConfig.Translation[language].GetValueOrDefault(themeConfig.CommonSubtitle, themeConfig.CommonSubtitle),
+					new Uri(themeConfig.SchemeAndHost + themeConfig.BasePath + language + "/"),
+					uuidGenerator.GenerateGuid(UUIDNameSpace.Url, themeConfig.SchemeAndHost + themeConfig.BasePath + language + "/").ToString(),
+					DateTimeOffset.Now
+				);
+				feed.Authors.Add(new SyndicationPerson() {
+					Name = themeConfig.Author,
+					Email = themeConfig.Email
+				});
+				List<SyndicationItem> items = new();
+				foreach (PageContext article in articles) {
+					SyndicationItem entry = new(
+						article.Title,
+						SyndicationContent.CreateHtmlContent(article.Content),
+						new Uri(article.Permalink),
+						uuidGenerator.GenerateGuid(UUIDNameSpace.Url, article.Permalink).ToString(), article.Time.GetValueOrDefault()
+					);
+					items.Add(entry);
+				}
+				feed.Items = items;
+				StringWriter sw = new();
+				XmlTextWriter xmlTextWriter = new(sw);
+				feed.SaveAsAtom10(xmlTextWriter);
+				xmlTextWriter.Close();
+				sw.Close();
+				result.Add(themeConfig.BasePath + language + "/atom.xml", sw.ToString());
+				if(language == themeConfig.Languages[0]) {
+					result.Add(themeConfig.BasePath + "atom.xml", sw.ToString());
+				}
+			}
+			return result;
 		}
 
 		static async Task BuildAsync() {
 			ThemeConfig themeConfig = GetThemeConfig();
 			MemoryFileSystem mfs = await GenerateAllAsync(themeConfig);
-			DirectoryInfo publishDir = new DirectoryInfo("public");
+			DirectoryInfo publishDir = new(Path.Combine(Argument.Directory.ToString(), "public"));
 			if (publishDir.Exists) {
 				foreach (FileInfo file in publishDir.EnumerateFiles()) {
 					file.Delete();
@@ -315,36 +325,18 @@ namespace SnowbowHandlebars {
 					dir.Delete(true);
 				}
 			}
-			mfs.WriteToDisk(publishDir, 0);
+			mfs.WriteToDisk(publishDir, themeConfig.BasePath.Count(ch => ch == '/') - 1);
 		}
 
 		static async Task ServerAsync() {
-			MemoryFileSystem mfs = new MemoryFileSystem();
 			HttpListener listener = new HttpListener();
 			ThemeConfig themeConfig = GetThemeConfig();
 			listener.Prefixes.Add("http://127.0.0.1:4000" + themeConfig.BasePath);
-			listener.Start();
-			Logger.Log.InfoFormat("Listening on {0}", "http://127.0.0.1:4000" + themeConfig.BasePath);
-			_ = Task.Run(() => {
-				while (true) {
-					var context = listener.GetContext();
-					var req = context.Request;
-					var resp = context.Response;
-					var path = req.Url!.LocalPath;
-					byte[] respContent;
-					bool existed = mfs.TryGetValue(path.EndsWith('/') ? path + "index.html" : path, out respContent!);
-					if (!existed) {
-						resp.StatusCode = (int)HttpStatusCode.NotFound;
-						resp.ContentType = "text/plain; charset=utf-8";
-						resp.Close("404 not found".ToUtf8Bytes(), true);
-						continue;
-					}
-					resp.ContentType = MimeMapping.MimeUtility.GetMimeMapping(path.EndsWith('/') ? path + "index.html" : path);
-					resp.Close(respContent, false);
-				}
-			});
-			mfs = await GenerateAllAsync(themeConfig);
-			var watcher = new FileSystemWatcher(Environment.CurrentDirectory);
+			MemoryFileSystemServer server = new(listener);
+			server.Start();
+			server.MemoryFileSystem = await GenerateAllAsync(themeConfig);
+
+			FileSystemWatcher watcher = new(Argument.Directory.FullName);
 			watcher.NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite;
 			watcher.IncludeSubdirectories = true;
 
@@ -352,18 +344,19 @@ namespace SnowbowHandlebars {
 				try {
 					watcher.EnableRaisingEvents = false;
 					await Task.Delay(100);
-					mfs = await GenerateAllAsync(themeConfig);
+					server.MemoryFileSystem = await GenerateAllAsync(themeConfig);
 				}
 				catch (Exception e) {
-					Logger.Log.Error(e.ToString());
+					log.Error(e.ToString());
 				}
 				finally {
 					watcher.EnableRaisingEvents = true;
 				}
 			};
 			watcher.EnableRaisingEvents = true;
-			Logger.Log.Info("Watching " + watcher.Path);
+			log.Info("Watching " + watcher.Path);
 			Console.ReadLine();
+			server.Stop();
 		}
 	}
 }
