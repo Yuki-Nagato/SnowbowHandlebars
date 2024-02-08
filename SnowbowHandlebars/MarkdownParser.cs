@@ -1,15 +1,19 @@
 ﻿using HtmlAgilityPack;
+using log4net;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using SnowbowHandlebars.Contexts;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using YamlDotNet.Serialization;
 
 namespace SnowbowHandlebars {
 	public static class MarkdownParser {
+		private static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod().NN().DeclaringType);
 		public static async Task<(Dictionary<string, object?>?, string)> ParseMarkdownAsync(string markdown) {
 			string[] parts = markdown.Split("---", 3);
 			string content;
@@ -35,19 +39,9 @@ namespace SnowbowHandlebars {
 			var stderr = new StringWriter();
 			var code = await Executor.ExecAsync("pandoc", "--no-highlight --mathml --eol=lf --wrap=none", new StringReader(markdown), stdout, stderr);
 			if (!string.IsNullOrEmpty(stderr.ToString())) {
-				Logger.Log.ErrorFormat("Pandoc error, {0}", stderr.ToString());
+				log.ErrorFormat("Pandoc error, {0}", stderr.ToString());
 			}
 			return stdout.ToString();
-		}
-
-		public static string ExtractPartialHtml(string contentHtml) {
-			var contentHtmlDocument = new HtmlDocument();
-			contentHtmlDocument.LoadHtml(contentHtml);
-			HtmlNode endNode = contentHtmlDocument.DocumentNode.SelectSingleNode("//comment()[contains(., 'more')]");
-			if (endNode == null) return contentHtml;
-			int endPos = endNode.StreamPosition;
-			string result = contentHtml.Substring(0, endPos);
-			return result;
 		}
 
 		public static string RedirectArticleAssetPath(ThemeConfig themeConfig, string articleCommonName, string html) {
@@ -143,7 +137,7 @@ namespace SnowbowHandlebars {
 			throw new NotImplementedException();
 		}
 
-		private object? ConvertValue(JToken token, JsonSerializer serializer) {
+		private static object? ConvertValue(JToken token, JsonSerializer serializer) {
 			switch (token.Type) {
 				case JTokenType.Object:
 					return token.ToObject<Dictionary<string, object?>>(serializer);
