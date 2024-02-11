@@ -47,11 +47,15 @@ namespace SnowbowHandlebars {
 			handlebars.RegisterHelper("TP", (in HelperOptions options, in Context context, in Arguments arguments) => ((ContextAggregation)options.Data["Root"]).TranslatePath((string)arguments.First()));
 			handlebars.RegisterHelper("FrontMatterOrDefault", (in HelperOptions options, in Context context, in Arguments arguments) => {
 				var argArr = arguments.ToArray();
-				if (argArr.Length != 2) {
-					throw new ArgumentException("FrontMatterOrDefault should have 2 arguments.");
+				if (context.Value is ContextAggregation aggCtx) {
+					return aggCtx.Page.FrontMatterOrDefault((string)argArr[0], argArr[1]);
 				}
-				ContextAggregation ctx = (ContextAggregation)options.Data["Root"];
-				return ctx.Page.FrontMatterOrDefault((string)argArr[0], argArr[1]);
+				else if (context.Value is PageContext pageCtx) {
+					return pageCtx.FrontMatterOrDefault((string)argArr[0], argArr[1]);
+				}
+				else {
+					return ((ContextAggregation)options.Data["Root"]).Page.FrontMatterOrDefault((string)argArr[0], argArr[1]);
+				}
 			});
 			handlebars.RegisterHelper("ToString", (context, arguments) => {
 				StringBuilder sb = new();
@@ -306,7 +310,7 @@ namespace SnowbowHandlebars {
 				xmlTextWriter.Close();
 				sw.Close();
 				result.Add(themeConfig.BasePath + language + "/atom.xml", sw.ToString());
-				if(language == themeConfig.Languages[0]) {
+				if (language == themeConfig.Languages[0]) {
 					result.Add(themeConfig.BasePath + "atom.xml", sw.ToString());
 				}
 			}
