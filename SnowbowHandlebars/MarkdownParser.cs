@@ -37,7 +37,7 @@ namespace SnowbowHandlebars {
 		static async Task<string> PandocRenderAsync(string markdown) {
 			var stdout = new StringWriter();
 			var stderr = new StringWriter();
-			var code = await Executor.ExecAsync("pandoc", "--no-highlight --mathml --eol=lf --wrap=none", new StringReader(markdown), stdout, stderr);
+			var code = await Executor.ExecAsync("pandoc", "--from=markdown-smart --to=html5 --no-highlight --mathml --eol=lf --wrap=none", new StringReader(markdown), stdout, stderr);
 			if (!string.IsNullOrEmpty(stderr.ToString())) {
 				log.ErrorFormat("Pandoc error, {0}", stderr.ToString());
 			}
