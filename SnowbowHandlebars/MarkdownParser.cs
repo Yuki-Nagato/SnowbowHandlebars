@@ -13,7 +13,7 @@ using YamlDotNet.Serialization;
 
 namespace SnowbowHandlebars {
 	public static class MarkdownParser {
-		private static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod().NN().DeclaringType);
+		private static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod()?.DeclaringType ?? throw new VitalObjectNullException("DeclaringType"));
 		public static async Task<(Dictionary<string, object?>?, string)> ParseMarkdownAsync(string markdown) {
 			string[] parts = markdown.Split("---", 3);
 			string content;
@@ -28,7 +28,11 @@ namespace SnowbowHandlebars {
 			var serializer = new SerializerBuilder().JsonCompatible().Build();
 			string json = serializer.Serialize(yamlObject);
 
-			Dictionary<string, object?> frontMatter = JsonConvert.DeserializeObject<Dictionary<string, object?>>(json, new JsonSerializerSettings() { DateParseHandling = DateParseHandling.DateTimeOffset, MissingMemberHandling = MissingMemberHandling.Error, Converters = { new GenericJsonConverter() } }).NN();
+			Dictionary<string, object?> frontMatter = JsonConvert.DeserializeObject<Dictionary<string, object?>>(json, new JsonSerializerSettings() {
+				DateParseHandling = DateParseHandling.DateTimeOffset,
+				MissingMemberHandling = MissingMemberHandling.Error,
+				Converters = { new GenericJsonConverter() }
+			}) ?? throw new VitalObjectNullException(nameof(frontMatter));
 
 			content = await PandocRenderAsync(parts[2].Trim());
 			return (frontMatter, content);
@@ -37,7 +41,7 @@ namespace SnowbowHandlebars {
 		static async Task<string> PandocRenderAsync(string markdown) {
 			var stdout = new StringWriter();
 			var stderr = new StringWriter();
-			var code = await Executor.ExecAsync("pandoc", "--from=markdown-smart --to=html5 --no-highlight --mathml --eol=lf --wrap=none", new StringReader(markdown), stdout, stderr);
+			await Executor.ExecAsync("pandoc", "--from=markdown-smart --to=html5 --no-highlight --mathml --eol=lf --wrap=none", new StringReader(markdown), stdout, stderr);
 			if (!string.IsNullOrEmpty(stderr.ToString())) {
 				log.ErrorFormat("Pandoc error, {0}", stderr.ToString());
 			}

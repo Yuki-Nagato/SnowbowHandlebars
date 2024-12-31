@@ -19,8 +19,8 @@ namespace SnowbowHandlebars.Contexts {
 			FrontMatter = frontMatter;
 			this.themeConfig = themeConfig;
 		}
-		private string defaultLayout;
-		public string Layout => FrontMatterOrDefault("layout", defaultLayout).NN();
+		private readonly string defaultLayout;
+		public string Layout => FrontMatterOrDefault("layout", defaultLayout) ?? throw new VitalObjectNullException(nameof(Layout));
 		public string CommonName { get; init; }
 		public string? Language { get; init; }
 		public string RelativePath { get; init; }
@@ -44,7 +44,7 @@ namespace SnowbowHandlebars.Contexts {
 				return (DateTimeOffset?)FrontMatter?.GetValueOrDefault("time");
 			}
 		}
-		public string Title => FrontMatterOrDefault("title", CommonName).NN();
+		public string Title => FrontMatterOrDefault("title", CommonName) ?? throw new VitalObjectNullException(nameof(Title));
 		public bool Toc => FrontMatterOrDefault("toc", false);
 		public bool AutoNumber => FrontMatterOrDefault("autoNumber", false);
 		public List<string> Tags => FrontMatterOrDefault<List<string>>("tags", null) ?? new List<string>();

@@ -52,14 +52,6 @@ namespace SnowbowHandlebars {
 		public static IEnumerable<T> OrEmptyIfNull<T>(this IEnumerable<T> source) {
 			return source ?? Enumerable.Empty<T>();
 		}
-
-		public static T NN<T>(this T? obj, [CallerArgumentExpression("obj")] string? paramName = null) {
-			if (obj == null) {
-				throw new ArgumentNullException(paramName);
-			}
-			return obj;
-		}
-
 		public static string RemoveStart(this string str, string start) {
 			if (!str.StartsWith(start)) {
 				throw new Exception($"RemoveStart failed. \"{str}\" does not start with \"{start}\".");

@@ -24,25 +24,17 @@ namespace SnowbowHandlebars {
 	}
 
 	public static class Argument {
-		private static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod().NN().DeclaringType);
+		private static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod()?.DeclaringType ?? throw new VitalObjectNullException("DeclaringType"));
 		private static string? verb;
 		public static string? Verb {
 			get {
-				return verb.NN();
+				return verb;
 			}
 		}
 		private static DirectoryInfo? directory;
-		public static DirectoryInfo Directory {
-			get {
-				return directory.NN();
-			}
-		}
+		public static DirectoryInfo Directory => directory ?? throw new VitalObjectNullException(nameof(Directory));
 		private static string? theme;
-		public static string Theme {
-			get {
-				return theme.NN();
-			}
-		}
+		public static string Theme => theme ?? throw new VitalObjectNullException(nameof(Theme));
 		public static DateTimeOffset BuildTime { get; set; }
 		public static void MakeEffect(string[] args) {
 			new Parser(config => config.AutoVersion = false).ParseArguments<BuildOptions, ServerOptions, VersionOptions>(args)
@@ -63,7 +55,7 @@ namespace SnowbowHandlebars {
 					theme = serverOption.Theme;
 				})
 				.WithParsed<VersionOptions>(versionOptions => {
-					log.Info("SnowbowHandlebars v1");
+					log.Info("SnowbowHandlebars v2");
 					verb = "version";
 				})
 				.WithNotParsed(errors => {

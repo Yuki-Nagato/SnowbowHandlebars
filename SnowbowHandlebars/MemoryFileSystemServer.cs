@@ -10,9 +10,9 @@ using System.Threading.Tasks;
 
 namespace SnowbowHandlebars {
 	public class MemoryFileSystemServer {
-		private static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod().NN().DeclaringType);
+		private static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod()?.DeclaringType ?? throw new VitalObjectNullException("DeclaringType"));
 		public MemoryFileSystem MemoryFileSystem { get; set; } = new MemoryFileSystem();
-		private HttpListener httpListener;
+		private readonly HttpListener httpListener;
 
 		public MemoryFileSystemServer(HttpListener httpListener) {
 			this.httpListener = httpListener;
@@ -30,7 +30,7 @@ namespace SnowbowHandlebars {
 			try {
 				HttpListenerContext context = httpListener.EndGetContext(ar);
 				httpListener.BeginGetContext(Callback, null);
-				string reqPath = context.Request.Url.NN().LocalPath;
+				string reqPath = context.Request.Url?.LocalPath ?? throw new VitalObjectNullException(nameof(reqPath));
 				if (reqPath.EndsWith('/')) {
 					reqPath += "index.html";
 				}

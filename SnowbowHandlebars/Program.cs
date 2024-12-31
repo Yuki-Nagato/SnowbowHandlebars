@@ -14,11 +14,12 @@ using System.ServiceModel.Syndication;
 using static SnowbowHandlebars.MarkdownParser;
 using System.Xml;
 using Vlingo.Xoom.UUID;
+using System.Collections.Concurrent;
 [assembly: log4net.Config.XmlConfigurator(ConfigFile = "log4net.config", Watch = true)]
 
 namespace SnowbowHandlebars {
 	internal class Program {
-		private static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod().NN().DeclaringType);
+		private static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod()?.DeclaringType ?? throw new VitalObjectNullException("DeclaringType"));
 
 		static async Task Main(string[] args) {
 			log.Debug("Snowbow started.");
@@ -98,7 +99,7 @@ namespace SnowbowHandlebars {
 		static async Task<MemoryFileSystem> GenerateAllAsync(ThemeConfig themeConfig) {
 			log.Info("Generating all...");
 			Argument.BuildTime = DateTimeOffset.Now;
-			MemoryFileSystem mfs = new MemoryFileSystem();
+			MemoryFileSystem mfs = new();
 			var template = MakeHandlebars();
 
 			ArticleContext articleContext = await BuildArticleContextAsync(themeConfig);
@@ -109,14 +110,14 @@ namespace SnowbowHandlebars {
 				}
 			}
 
-			List<PageContext> pageContexts = await BuildPageContextAsync(articleContext, themeConfig);
+			IEnumerable<PageContext> pageContexts = await BuildPageContextAsync(articleContext, themeConfig);
 			foreach (PageContext ctx in pageContexts) {
 				string rendered = template(new ContextAggregation(themeConfig, articleContext, ctx));
 				mfs.Add(ctx.Path, rendered);
 			}
 
 			foreach (string language in themeConfig.Languages) {
-				PageContext ctx = new PageContext("index", "index", language, "", "", language, null, themeConfig);
+				PageContext ctx = new("index", "index", language, "", "", language, null, themeConfig);
 				string rendered = template(new ContextAggregation(themeConfig, articleContext, ctx));
 				mfs.Add(ctx.Path, rendered);
 			}
@@ -130,13 +131,13 @@ namespace SnowbowHandlebars {
 		static async Task<ArticleContext> BuildArticleContextAsync(ThemeConfig themeConfig) {
 			ArticleContext result = new(new Dictionary<string, List<PageContext>>(), new Dictionary<string, SortedDictionary<string, List<PageContext>>>(), new Dictionary<string, SortedDictionary<string, List<PageContext>>>());
 
-			List<Dictionary<string, PageContext>> languageArticleDictionaries = new();
+			ConcurrentBag<Dictionary<string, PageContext>> languageArticleDictionaries = new();
 
 			var articleDirs = Argument.Directory.GetDirectories("articles/????????-*");
-			foreach (DirectoryInfo articleDir in articleDirs) {
+			await Parallel.ForEachAsync(articleDirs, async (articleDir, cancellationToken) => {
 				Match m = Regex.Match(articleDir.Name, @"^(\d{8})-(.+)$");
 				if (!m.Success) {
-					continue;
+					return;
 				}
 				string commonName = m.Groups[2].Value;
 				Dictionary<string, PageContext> languageArticleDictionary = new();
@@ -154,7 +155,7 @@ namespace SnowbowHandlebars {
 				if (languageArticleDictionary.Any()) {
 					languageArticleDictionaries.Add(languageArticleDictionary);
 				}
-			}
+			});
 
 			// Fill ArticleContexts without i18n source.
 			foreach (var languageArticleDictionary in languageArticleDictionaries) {
@@ -216,10 +217,10 @@ namespace SnowbowHandlebars {
 			return result;
 		}
 
-		static async Task<List<PageContext>> BuildPageContextAsync(ArticleContext articleContext, ThemeConfig themeConfig) {
-			List<PageContext> result = new();
+		static async Task<IEnumerable<PageContext>> BuildPageContextAsync(ArticleContext articleContext, ThemeConfig themeConfig) {
+			ConcurrentBag<PageContext> result = new();
 			DirectoryInfo pagesDir = Argument.Directory.GetDir("pages");
-			foreach (FileInfo fileInfo in pagesDir.GetFiles("*.md", SearchOption.AllDirectories)) {
+			await Parallel.ForEachAsync(pagesDir.GetFiles("*.md", SearchOption.AllDirectories), async (fileInfo, cancellationToken) => {
 				var (frontMatter, content) = await ParseMarkdownAsync(fileInfo.ReadAllText());
 				string path = fileInfo.RelativeTo(pagesDir);
 				string commonName = Path.GetFileNameWithoutExtension(fileInfo.FullName);
@@ -239,12 +240,12 @@ namespace SnowbowHandlebars {
 				}
 				PageContext ctx = new("page", commonName, language, path, content, language, frontMatter, themeConfig);
 				result.Add(ctx);
-			}
+			});
 			return result;
 		}
 
 		static MemoryFileSystem CopyAssets(ThemeConfig themeConfig) {
-			MemoryFileSystem mfs = new MemoryFileSystem();
+			MemoryFileSystem mfs = new();
 
 			DirectoryInfo themeAssets = Argument.Directory.GetDir("themes").GetDir(Argument.Theme).GetDir("assets");
 			foreach (FileInfo fileInfo in themeAssets.GetFiles("*", SearchOption.AllDirectories)) {
@@ -333,33 +334,38 @@ namespace SnowbowHandlebars {
 		}
 
 		static async Task ServerAsync() {
-			HttpListener listener = new HttpListener();
+			HttpListener listener = new();
 			ThemeConfig themeConfig = GetThemeConfig();
 			listener.Prefixes.Add("http://127.0.0.1:4000" + themeConfig.BasePath);
 			MemoryFileSystemServer server = new(listener);
 			server.Start();
 			server.MemoryFileSystem = await GenerateAllAsync(themeConfig);
 
-			FileSystemWatcher watcher = new(Argument.Directory.FullName);
-			watcher.NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite;
-			watcher.IncludeSubdirectories = true;
+			FileSystemWatcher watcher = new(Argument.Directory.FullName) {
+				NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite,
+				IncludeSubdirectories = true
+			};
 
+			CancellationTokenSource? cancellationTokenSource = null;
 			watcher.Changed += async (sender, args) => {
 				try {
-					watcher.EnableRaisingEvents = false;
-					await Task.Delay(100);
+					cancellationTokenSource?.Cancel();
+					cancellationTokenSource?.Dispose();
+					cancellationTokenSource = new CancellationTokenSource();
+					await Task.Delay(500, cancellationTokenSource.Token);
 					server.MemoryFileSystem = await GenerateAllAsync(themeConfig);
+				}
+				catch (TaskCanceledException) {
+
 				}
 				catch (Exception e) {
 					log.Error(e.ToString());
-				}
-				finally {
-					watcher.EnableRaisingEvents = true;
 				}
 			};
 			watcher.EnableRaisingEvents = true;
 			log.Info("Watching " + watcher.Path);
 			Console.ReadLine();
+			cancellationTokenSource?.Dispose();
 			server.Stop();
 		}
 	}
